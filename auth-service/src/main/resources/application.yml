@@ -1,0 +1,65 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: auth-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5434/nexushr_auth}
+    username: ${DB_USERNAME:nexushr}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:25}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    from: ${SMTP_FROM:noreply@nexushr.local}
+    properties:
+      mail:
+        smtp:
+          auth: ${SMTP_AUTH:false}
+          starttls:
+            enable: ${SMTP_STARTTLS:false}
+            required: ${SMTP_STARTTLS_REQUIRED:false}
+  task:
+    execution:
+      pool:
+        core-size: 2
+        max-size: 4
+        queue-capacity: 100
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    show-sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration-ms: ${JWT_ACCESS_TOKEN_TTL_MS:900000}
+  auth:
+    cookie-secure: ${COOKIE_SECURE:false}
+    password-reset:
+      email-enabled: ${PASSWORD_RESET_EMAIL_ENABLED:false}
+      frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:3000}
+      token-ttl-minutes: ${PASSWORD_RESET_TOKEN_TTL_MINUTES:30}
+  bootstrap-admin:
+    full-name: ${NEXUSHR_BOOTSTRAP_ADMIN_NAME:}
+    email: ${NEXUSHR_BOOTSTRAP_ADMIN_EMAIL:}
+    password: ${NEXUSHR_BOOTSTRAP_ADMIN_PASSWORD:}
+logging:
+  level:
+    org.springframework.security: INFO
+    org.springframework.web: INFO

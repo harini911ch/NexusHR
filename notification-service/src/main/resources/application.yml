@@ -1,0 +1,60 @@
+﻿server:
+  port: 8087
+
+spring:
+  application:
+    name: notification-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5434/nexushr_auth?currentSchema=notification_data}
+    username: ${DB_USERNAME:nexushr}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    default-schema: notification_data
+    schemas: notification_data
+    create-schemas: true
+    locations: classpath:db/migration
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:25}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SMTP_AUTH:false}
+          starttls:
+            enable: ${SMTP_STARTTLS:false}
+            required: ${SMTP_STARTTLS_REQUIRED:false}
+          connectiontimeout: ${SMTP_CONNECTION_TIMEOUT_MS:5000}
+          timeout: ${SMTP_READ_TIMEOUT_MS:10000}
+          writetimeout: ${SMTP_WRITE_TIMEOUT_MS:5000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+  websocket:
+    allowed-origins: ${WEBSOCKET_ALLOWED_ORIGINS:http://localhost:5173}
+  email:
+    enabled: ${EMAIL_ENABLED:false}
+    from: ${SMTP_FROM:noreply@nexushr.local}
+    delivery:
+      poll-interval-ms: ${NOTIFICATION_DELIVERY_POLL_INTERVAL_MS:2000}
+      batch-size: ${NOTIFICATION_DELIVERY_BATCH_SIZE:20}
+      max-attempts: ${NOTIFICATION_DELIVERY_MAX_ATTEMPTS:12}
+      lease-seconds: ${NOTIFICATION_DELIVERY_LEASE_SECONDS:60}
+  notifications:
+    internal-token: ${INTERNAL_NOTIFICATION_TOKEN:}

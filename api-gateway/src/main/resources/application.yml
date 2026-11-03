@@ -1,0 +1,79 @@
+server:
+  port: 8090
+
+app:
+  security:
+    allowed-origins: "${APP_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:4173,http://localhost:3000}"
+
+spring:
+  application:
+    name: api-gateway
+
+  cloud:
+    gateway:
+      routes:
+        - id: auth-service
+          uri: ${AUTH_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/auth/**
+
+        - id: employee-service
+          uri: ${EMPLOYEE_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/employees/**,/api/departments/**,/api/designations/**
+
+        - id: payroll-service
+          uri: ${PAYROLL_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/payroll/**
+
+        - id: attendance-service
+          uri: ${ATTENDANCE_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/attendance/**,/api/leaves/**,/api/leave-types/**,/api/holidays/**
+
+        - id: performance-service
+          uri: ${PERFORMANCE_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/performance/**
+
+        - id: notification-service
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/api/notifications/**
+
+        - id: notification-websocket
+          uri: ${NOTIFICATION_WEBSOCKET_URL:ws://localhost:8087}
+          predicates:
+            - Path=/ws/notifications
+
+        - id: ai-insights-service
+          uri: ${AI_INSIGHTS_SERVICE_URL:http://localhost:8086}
+          predicates:
+            - Path=/api/insights/**
+
+      globalcors:
+        add-to-simple-url-handler-mapping: true
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: ${app.security.allowed-origins}
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - OPTIONS
+            allowedHeaders:
+              - "*"
+            allowCredentials: true
+            maxAge: 3600
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never

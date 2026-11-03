@@ -1,0 +1,849 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: nexushr
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: nexushr-secrets
+                  key: DB_USERNAME
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nexushr-secrets
+                  key: DB_PASSWORD
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: nexushr
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: nexushr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: ["redis-server", "--appendonly", "yes"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: nexushr
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: nexushr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+        - name: auth-service
+          image: nexushr-auth-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+          env:
+            - name: SERVER_PORT
+              value: "8081"
+            - name: DB_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: AUTH_DB_URL
+            - name: COOKIE_SECURE
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: COOKIE_SECURE
+            - name: PASSWORD_RESET_EMAIL_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: PASSWORD_RESET_EMAIL_ENABLED
+            - name: PASSWORD_RESET_TOKEN_TTL_MINUTES
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: PASSWORD_RESET_TOKEN_TTL_MINUTES
+            - name: FRONTEND_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: FRONTEND_BASE_URL
+            - name: SMTP_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: SMTP_HOST
+            - name: SMTP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: SMTP_PORT
+            - name: SMTP_AUTH
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: SMTP_AUTH
+            - name: SMTP_STARTTLS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: SMTP_STARTTLS
+            - name: SMTP_STARTTLS_REQUIRED
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: SMTP_STARTTLS_REQUIRED
+            - name: SMTP_FROM
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: SMTP_FROM
+            - name: NEXUSHR_BOOTSTRAP_ADMIN_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: nexushr-secrets
+                  key: NEXUSHR_BOOTSTRAP_ADMIN_NAME
+                  optional: true
+            - name: NEXUSHR_BOOTSTRAP_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: nexushr-secrets
+                  key: NEXUSHR_BOOTSTRAP_ADMIN_EMAIL
+                  optional: true
+            - name: NEXUSHR_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nexushr-secrets
+                  key: NEXUSHR_BOOTSTRAP_ADMIN_PASSWORD
+                  optional: true
+          envFrom:
+            - secretRef:
+                name: nexushr-secrets
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 45
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: nexushr
+spec:
+  selector:
+    app: auth-service
+  ports:
+    - port: 8081
+      targetPort: 8081
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: employee-service
+  namespace: nexushr
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: employee-service
+  template:
+    metadata:
+      labels:
+        app: employee-service
+    spec:
+      containers:
+        - name: employee-service
+          image: nexushr-employee-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8082
+          env:
+            - name: SERVER_PORT
+              value: "8082"
+            - name: APP_NOTIFICATIONS_SERVICE_URL
+              value: http://notification-service:8087
+            - name: NOTIFICATION_OUTBOX_POLL_INTERVAL_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_OUTBOX_POLL_INTERVAL_MS
+            - name: NOTIFICATION_OUTBOX_BATCH_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_OUTBOX_BATCH_SIZE
+            - name: NOTIFICATION_OUTBOX_MAX_ATTEMPTS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_OUTBOX_MAX_ATTEMPTS
+            - name: NOTIFICATION_OUTBOX_LEASE_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_OUTBOX_LEASE_SECONDS
+            - name: DOCUMENT_STORAGE_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: DOCUMENT_STORAGE_TYPE
+            - name: DOCUMENTS_S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: DOCUMENTS_S3_BUCKET
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: AWS_REGION
+            - name: DOCUMENTS_S3_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: DOCUMENTS_S3_ENDPOINT
+            - name: DOCUMENTS_S3_PATH_STYLE_ACCESS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: DOCUMENTS_S3_PATH_STYLE_ACCESS
+            - name: DB_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: EMPLOYEE_DB_URL
+          envFrom:
+            - secretRef:
+                name: nexushr-secrets
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8082
+            initialDelaySeconds: 45
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: employee-service
+  namespace: nexushr
+spec:
+  selector:
+    app: employee-service
+  ports:
+    - port: 8082
+      targetPort: 8082
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payroll-service
+  namespace: nexushr
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payroll-service
+  template:
+    metadata:
+      labels:
+        app: payroll-service
+    spec:
+      containers:
+        - name: payroll-service
+          image: nexushr-payroll-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8083
+          env:
+            - name: SERVER_PORT
+              value: "8083"
+            - name: APP_NOTIFICATIONS_SERVICE_URL
+              value: http://notification-service:8087
+            - name: NOTIFICATION_OUTBOX_POLL_INTERVAL_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_OUTBOX_POLL_INTERVAL_MS
+            - name: NOTIFICATION_OUTBOX_BATCH_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_OUTBOX_BATCH_SIZE
+            - name: NOTIFICATION_OUTBOX_MAX_ATTEMPTS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_OUTBOX_MAX_ATTEMPTS
+            - name: NOTIFICATION_OUTBOX_LEASE_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_OUTBOX_LEASE_SECONDS
+            - name: DB_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: PAYROLL_DB_URL
+          envFrom:
+            - secretRef:
+                name: nexushr-secrets
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8083
+            initialDelaySeconds: 45
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payroll-service
+  namespace: nexushr
+spec:
+  selector:
+    app: payroll-service
+  ports:
+    - port: 8083
+      targetPort: 8083
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: attendance-service
+  namespace: nexushr
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: attendance-service
+  template:
+    metadata:
+      labels:
+        app: attendance-service
+    spec:
+      containers:
+        - name: attendance-service
+          image: nexushr-attendance-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8084
+          env:
+            - name: SERVER_PORT
+              value: "8084"
+            - name: APP_NOTIFICATIONS_SERVICE_URL
+              value: http://notification-service:8087
+            - name: NOTIFICATION_OUTBOX_POLL_INTERVAL_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_OUTBOX_POLL_INTERVAL_MS
+            - name: NOTIFICATION_OUTBOX_BATCH_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_OUTBOX_BATCH_SIZE
+            - name: NOTIFICATION_OUTBOX_MAX_ATTEMPTS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_OUTBOX_MAX_ATTEMPTS
+            - name: NOTIFICATION_OUTBOX_LEASE_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_OUTBOX_LEASE_SECONDS
+            - name: DB_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: ATTENDANCE_DB_URL
+            - name: ATTENDANCE_ZONE
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: ATTENDANCE_ZONE
+            - name: ATTENDANCE_WORKDAY_START
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: ATTENDANCE_WORKDAY_START
+            - name: STANDARD_DAILY_MINUTES
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: STANDARD_DAILY_MINUTES
+          envFrom:
+            - secretRef:
+                name: nexushr-secrets
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8084
+            initialDelaySeconds: 45
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: attendance-service
+  namespace: nexushr
+spec:
+  selector:
+    app: attendance-service
+  ports:
+    - port: 8084
+      targetPort: 8084
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: performance-service
+  namespace: nexushr
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: performance-service
+  template:
+    metadata:
+      labels:
+        app: performance-service
+    spec:
+      containers:
+        - name: performance-service
+          image: nexushr-performance-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8085
+          env:
+            - name: SERVER_PORT
+              value: "8085"
+            - name: DB_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: PERFORMANCE_DB_URL
+          envFrom:
+            - secretRef:
+                name: nexushr-secrets
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8085
+            initialDelaySeconds: 45
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: performance-service
+  namespace: nexushr
+spec:
+  selector:
+    app: performance-service
+  ports:
+    - port: 8085
+      targetPort: 8085
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-insights-service
+  namespace: nexushr
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-insights-service
+  template:
+    metadata:
+      labels:
+        app: ai-insights-service
+    spec:
+      containers:
+        - name: ai-insights-service
+          image: nexushr-ai-insights-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8086
+          env:
+            - name: SERVER_PORT
+              value: "8086"
+            - name: APP_AI_PROVIDER
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: APP_AI_PROVIDER
+            - name: SPRING_AI_CHAT_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: SPRING_AI_CHAT_MODEL
+            - name: OPENAI_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: OPENAI_MODEL
+            - name: SPRING_AI_OPENAI_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: SPRING_AI_OPENAI_BASE_URL
+            - name: AI_PROVIDER_CONNECT_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: AI_PROVIDER_CONNECT_TIMEOUT
+            - name: AI_PROVIDER_READ_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: AI_PROVIDER_READ_TIMEOUT
+          envFrom:
+            - secretRef:
+                name: nexushr-secrets
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8086
+            initialDelaySeconds: 15
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-insights-service
+  namespace: nexushr
+spec:
+  selector:
+    app: ai-insights-service
+  ports:
+    - port: 8086
+      targetPort: 8086
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: nexushr
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      containers:
+        - name: notification-service
+          image: nexushr-notification-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8087
+          env:
+            - name: SERVER_PORT
+              value: "8087"
+            - name: DB_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_DB_URL
+            - name: EMAIL_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: EMAIL_ENABLED
+            - name: WEBSOCKET_ALLOWED_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: WEBSOCKET_ALLOWED_ORIGINS
+            - name: SMTP_CONNECTION_TIMEOUT_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: SMTP_CONNECTION_TIMEOUT_MS
+            - name: SMTP_READ_TIMEOUT_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: SMTP_READ_TIMEOUT_MS
+            - name: SMTP_WRITE_TIMEOUT_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: SMTP_WRITE_TIMEOUT_MS
+            - name: NOTIFICATION_DELIVERY_POLL_INTERVAL_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_DELIVERY_POLL_INTERVAL_MS
+            - name: NOTIFICATION_DELIVERY_BATCH_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_DELIVERY_BATCH_SIZE
+            - name: NOTIFICATION_DELIVERY_MAX_ATTEMPTS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_DELIVERY_MAX_ATTEMPTS
+            - name: NOTIFICATION_DELIVERY_LEASE_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: NOTIFICATION_DELIVERY_LEASE_SECONDS
+          envFrom:
+            - secretRef:
+                name: nexushr-secrets
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8087
+            initialDelaySeconds: 45
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: nexushr
+spec:
+  selector:
+    app: notification-service
+  ports:
+    - port: 8087
+      targetPort: 8087
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: nexushr
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: nexushr-api-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8090
+          env:
+            - name: SERVER_PORT
+              value: "8090"
+            - name: APP_ALLOWED_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: nexushr-config
+                  key: APP_ALLOWED_ORIGINS
+            - name: AUTH_SERVICE_URL
+              value: http://auth-service:8081
+            - name: EMPLOYEE_SERVICE_URL
+              value: http://employee-service:8082
+            - name: PAYROLL_SERVICE_URL
+              value: http://payroll-service:8083
+            - name: ATTENDANCE_SERVICE_URL
+              value: http://attendance-service:8084
+            - name: PERFORMANCE_SERVICE_URL
+              value: http://performance-service:8085
+            - name: AI_INSIGHTS_SERVICE_URL
+              value: http://ai-insights-service:8086
+            - name: NOTIFICATION_SERVICE_URL
+              value: http://notification-service:8087
+            - name: NOTIFICATION_WEBSOCKET_URL
+              value: ws://notification-service:8087
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8090
+            initialDelaySeconds: 15
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: nexushr
+spec:
+  selector:
+    app: api-gateway
+  ports:
+    - port: 8090
+      targetPort: 8090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: nexushr
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: nexushr-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: nexushr
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nexushr
+  namespace: nexushr
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: nexushr.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

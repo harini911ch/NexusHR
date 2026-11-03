@@ -1,0 +1,42 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: payroll-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5434/nexushr_auth?currentSchema=payroll_data}
+    username: ${DB_USERNAME:nexushr}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    default-schema: payroll_data
+    schemas: payroll_data
+    create-schemas: true
+    locations: classpath:db/migration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+  notifications:
+    service-url: ${APP_NOTIFICATIONS_SERVICE_URL:http://localhost:8087}
+    internal-token: ${APP_NOTIFICATIONS_INTERNAL_TOKEN:}
+    outbox:
+      enabled: true
+      poll-interval-ms: ${NOTIFICATION_OUTBOX_POLL_INTERVAL_MS:1000}
+      batch-size: ${NOTIFICATION_OUTBOX_BATCH_SIZE:20}
+      max-attempts: ${NOTIFICATION_OUTBOX_MAX_ATTEMPTS:12}
+      lease-seconds: ${NOTIFICATION_OUTBOX_LEASE_SECONDS:30}

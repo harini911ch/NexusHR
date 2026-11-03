@@ -1,0 +1,335 @@
+﻿services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: nexushr-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nexushr_auth}
+      POSTGRES_USER: ${DB_USERNAME:-nexushr}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+    ports:
+      - "5434:5432"
+    volumes:
+      - nexushr-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: nexushr-redis
+    restart: unless-stopped
+    ports:
+      - "6381:6379"
+    volumes:
+      - nexushr-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    container_name: nexushr-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: auth-service
+    image: nexushr-auth-service:latest
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      SERVER_PORT: 8081
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-nexushr_auth}
+      DB_USERNAME: ${DB_USERNAME:-nexushr}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      JWT_ACCESS_TOKEN_TTL_MS: ${JWT_ACCESS_TOKEN_TTL_MS:-900000}
+      PASSWORD_RESET_EMAIL_ENABLED: ${PASSWORD_RESET_EMAIL_ENABLED:-true}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
+      PASSWORD_RESET_TOKEN_TTL_MINUTES: ${PASSWORD_RESET_TOKEN_TTL_MINUTES:-30}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTH: ${SMTP_AUTH:-false}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      SMTP_STARTTLS_REQUIRED: ${SMTP_STARTTLS_REQUIRED:-false}
+      SMTP_FROM: ${SMTP_FROM:-noreply@nexushr.local}
+      NEXUSHR_BOOTSTRAP_ADMIN_NAME: ${NEXUSHR_BOOTSTRAP_ADMIN_NAME:-}
+      NEXUSHR_BOOTSTRAP_ADMIN_EMAIL: ${NEXUSHR_BOOTSTRAP_ADMIN_EMAIL:-}
+      NEXUSHR_BOOTSTRAP_ADMIN_PASSWORD: ${NEXUSHR_BOOTSTRAP_ADMIN_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+  employee-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: employee-service
+    image: nexushr-employee-service:latest
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      SERVER_PORT: 8082
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-nexushr_auth}?currentSchema=employee_data
+      DB_USERNAME: ${DB_USERNAME:-nexushr}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      APP_NOTIFICATIONS_SERVICE_URL: http://notification-service:8087
+      APP_NOTIFICATIONS_INTERNAL_TOKEN: ${INTERNAL_NOTIFICATION_TOKEN:?Set INTERNAL_NOTIFICATION_TOKEN in .env}
+      NOTIFICATION_OUTBOX_POLL_INTERVAL_MS: ${NOTIFICATION_OUTBOX_POLL_INTERVAL_MS:-1000}
+      NOTIFICATION_OUTBOX_BATCH_SIZE: ${NOTIFICATION_OUTBOX_BATCH_SIZE:-20}
+      NOTIFICATION_OUTBOX_MAX_ATTEMPTS: ${NOTIFICATION_OUTBOX_MAX_ATTEMPTS:-12}
+      NOTIFICATION_OUTBOX_LEASE_SECONDS: ${NOTIFICATION_OUTBOX_LEASE_SECONDS:-30}
+      DOCUMENT_STORAGE_TYPE: ${DOCUMENT_STORAGE_TYPE:-local}
+      EMPLOYEE_DOCUMENTS_DIRECTORY: /var/lib/nexushr/documents
+    volumes:
+      - nexushr-employee-documents:/var/lib/nexushr/documents
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  payroll-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: payroll-service
+    image: nexushr-payroll-service:latest
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    environment:
+      SERVER_PORT: 8083
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-nexushr_auth}?currentSchema=payroll_data
+      DB_USERNAME: ${DB_USERNAME:-nexushr}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      APP_NOTIFICATIONS_SERVICE_URL: http://notification-service:8087
+      APP_NOTIFICATIONS_INTERNAL_TOKEN: ${INTERNAL_NOTIFICATION_TOKEN:?Set INTERNAL_NOTIFICATION_TOKEN in .env}
+      NOTIFICATION_OUTBOX_POLL_INTERVAL_MS: ${NOTIFICATION_OUTBOX_POLL_INTERVAL_MS:-1000}
+      NOTIFICATION_OUTBOX_BATCH_SIZE: ${NOTIFICATION_OUTBOX_BATCH_SIZE:-20}
+      NOTIFICATION_OUTBOX_MAX_ATTEMPTS: ${NOTIFICATION_OUTBOX_MAX_ATTEMPTS:-12}
+      NOTIFICATION_OUTBOX_LEASE_SECONDS: ${NOTIFICATION_OUTBOX_LEASE_SECONDS:-30}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  attendance-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: attendance-service
+    image: nexushr-attendance-service:latest
+    restart: unless-stopped
+    ports:
+      - "8084:8084"
+    environment:
+      SERVER_PORT: 8084
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-nexushr_auth}?currentSchema=attendance_data
+      DB_USERNAME: ${DB_USERNAME:-nexushr}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      APP_NOTIFICATIONS_SERVICE_URL: http://notification-service:8087
+      APP_NOTIFICATIONS_INTERNAL_TOKEN: ${INTERNAL_NOTIFICATION_TOKEN:?Set INTERNAL_NOTIFICATION_TOKEN in .env}
+      NOTIFICATION_OUTBOX_POLL_INTERVAL_MS: ${NOTIFICATION_OUTBOX_POLL_INTERVAL_MS:-1000}
+      NOTIFICATION_OUTBOX_BATCH_SIZE: ${NOTIFICATION_OUTBOX_BATCH_SIZE:-20}
+      NOTIFICATION_OUTBOX_MAX_ATTEMPTS: ${NOTIFICATION_OUTBOX_MAX_ATTEMPTS:-12}
+      NOTIFICATION_OUTBOX_LEASE_SECONDS: ${NOTIFICATION_OUTBOX_LEASE_SECONDS:-30}
+      ATTENDANCE_ZONE: ${ATTENDANCE_ZONE:-UTC}
+      ATTENDANCE_WORKDAY_START: ${ATTENDANCE_WORKDAY_START:-09:00}
+      STANDARD_DAILY_MINUTES: ${STANDARD_DAILY_MINUTES:-480}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  performance-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: performance-service
+    image: nexushr-performance-service:latest
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    environment:
+      SERVER_PORT: 8085
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-nexushr_auth}?currentSchema=performance_data
+      DB_USERNAME: ${DB_USERNAME:-nexushr}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ai-insights-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: ai-insights-service
+    image: nexushr-ai-insights-service:latest
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      SERVER_PORT: 8086
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      APP_AI_PROVIDER: ${APP_AI_PROVIDER:-deterministic}
+      SPRING_AI_CHAT_MODEL: ${SPRING_AI_CHAT_MODEL:-none}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      SPRING_AI_OPENAI_BASE_URL: ${SPRING_AI_OPENAI_BASE_URL:-https://api.openai.com}
+      AI_PROVIDER_CONNECT_TIMEOUT: ${AI_PROVIDER_CONNECT_TIMEOUT:-PT3S}
+      AI_PROVIDER_READ_TIMEOUT: ${AI_PROVIDER_READ_TIMEOUT:-PT15S}
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: notification-service
+    image: nexushr-notification-service:latest
+    restart: unless-stopped
+    ports:
+      - "8087:8087"
+    environment:
+      SERVER_PORT: 8087
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-nexushr_auth}?currentSchema=notification_data
+      DB_USERNAME: ${DB_USERNAME:-nexushr}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      APP_NOTIFICATIONS_INTERNAL_TOKEN: ${INTERNAL_NOTIFICATION_TOKEN:?Set INTERNAL_NOTIFICATION_TOKEN in .env}
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTH: ${SMTP_AUTH:-false}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      SMTP_STARTTLS_REQUIRED: ${SMTP_STARTTLS_REQUIRED:-false}
+      SMTP_FROM: ${SMTP_FROM:-noreply@nexushr.local}
+      SMTP_CONNECTION_TIMEOUT_MS: ${SMTP_CONNECTION_TIMEOUT_MS:-5000}
+      SMTP_READ_TIMEOUT_MS: ${SMTP_READ_TIMEOUT_MS:-10000}
+      SMTP_WRITE_TIMEOUT_MS: ${SMTP_WRITE_TIMEOUT_MS:-5000}
+      NOTIFICATION_DELIVERY_POLL_INTERVAL_MS: ${NOTIFICATION_DELIVERY_POLL_INTERVAL_MS:-2000}
+      NOTIFICATION_DELIVERY_BATCH_SIZE: ${NOTIFICATION_DELIVERY_BATCH_SIZE:-20}
+      NOTIFICATION_DELIVERY_MAX_ATTEMPTS: ${NOTIFICATION_DELIVERY_MAX_ATTEMPTS:-12}
+      NOTIFICATION_DELIVERY_LEASE_SECONDS: ${NOTIFICATION_DELIVERY_LEASE_SECONDS:-60}
+      WEBSOCKET_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:4173,http://localhost:3000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: api-gateway
+    image: nexushr-api-gateway:latest
+    restart: unless-stopped
+    ports:
+      - "8091:8090"
+    environment:
+      SERVER_PORT: 8090
+      APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:4173,http://localhost:3000}
+      AUTH_SERVICE_URL: http://auth-service:8081
+      EMPLOYEE_SERVICE_URL: http://employee-service:8082
+      PAYROLL_SERVICE_URL: http://payroll-service:8083
+      ATTENDANCE_SERVICE_URL: http://attendance-service:8084
+      PERFORMANCE_SERVICE_URL: http://performance-service:8085
+      AI_INSIGHTS_SERVICE_URL: http://ai-insights-service:8086
+      NOTIFICATION_SERVICE_URL: http://notification-service:8087
+      NOTIFICATION_WEBSOCKET_URL: ws://notification-service:8087
+    depends_on:
+      - auth-service
+      - employee-service
+      - payroll-service
+      - attendance-service
+      - performance-service
+      - ai-insights-service
+      - notification-service
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    image: nexushr-frontend:latest
+    container_name: nexushr-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - nexushr-prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    depends_on:
+      - api-gateway
+      - auth-service
+      - employee-service
+      - payroll-service
+      - attendance-service
+      - performance-service
+      - ai-insights-service
+      - notification-service
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - nexushr-grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  nexushr-postgres-data:
+  nexushr-employee-documents:
+  nexushr-redis-data:
+  nexushr-prometheus-data:
+  nexushr-grafana-data:

@@ -1,0 +1,57 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: employee-service
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5434/nexushr_auth?currentSchema=employee_data}
+    username: ${DB_USERNAME:nexushr}
+    password: ${DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    default-schema: employee_data
+    schemas: employee_data
+    create-schemas: true
+    locations: classpath:db/migration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+  documents:
+    storage: ${DOCUMENT_STORAGE_TYPE:local}
+    local-directory: ${EMPLOYEE_DOCUMENTS_DIRECTORY:./data/employee-documents}
+    s3:
+      bucket: ${DOCUMENTS_S3_BUCKET:}
+      region: ${AWS_REGION:}
+      endpoint: ${DOCUMENTS_S3_ENDPOINT:}
+      path-style-access: ${DOCUMENTS_S3_PATH_STYLE_ACCESS:false}
+  notifications:
+    service-url: ${APP_NOTIFICATIONS_SERVICE_URL:http://localhost:8087}
+    internal-token: ${APP_NOTIFICATIONS_INTERNAL_TOKEN:}
+    outbox:
+      enabled: true
+      poll-interval-ms: ${NOTIFICATION_OUTBOX_POLL_INTERVAL_MS:1000}
+      batch-size: ${NOTIFICATION_OUTBOX_BATCH_SIZE:20}
+      max-attempts: ${NOTIFICATION_OUTBOX_MAX_ATTEMPTS:12}
+      lease-seconds: ${NOTIFICATION_OUTBOX_LEASE_SECONDS:30}
