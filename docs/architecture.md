@@ -100,7 +100,7 @@ Notification operations:
 
 ## Security and policy decisions
 
-- Passwords use BCrypt. Invitations and refresh tokens are stored as hashes; refresh tokens rotate on use. Browser sessions use HttpOnly cookies, with Origin checks for unsafe cookie-authenticated requests.
+- Passwords use BCrypt. Invitations and refresh tokens are stored as hashes; refresh tokens rotate on use. Browser sessions use HttpOnly cookies, with Origin checks for unsafe cookie-authenticated requests. Cookies use `SameSite=Lax` when `COOKIE_SECURE=false` for local HTTP development and `SameSite=None; Secure` when `COOKIE_SECURE=true` for cross-site HTTPS deployments.
 - Service controllers return DTOs rather than JPA entities. Sensitive operations use role checks and employee/manager scoping in services.
 - Access tokens are short-lived. Do not put access or refresh tokens in browser local storage.
 - Bootstrap credentials and JWT/database secrets come from environment variables or an external secret store. Never check production credentials into Git.
